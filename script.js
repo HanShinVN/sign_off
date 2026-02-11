@@ -81,32 +81,112 @@ async function showDashboard(email) {
 function renderDashboard(data) {
     const tbody = el('allHistoryBody');
     const grid = el('calendarGrid');
-    tbody.innerHTML = ''; grid.innerHTML = '';
+    const todayGrid = el('todayGrid');
+    const filterMonthSelect = el('filterMonth');
+    
+    tbody.innerHTML = ''; grid.innerHTML = ''; 
+    if(todayGrid) todayGrid.innerHTML = '';
     
     if (data.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">Chưa có dữ liệu.</td></tr>'; return;
+        tbody.innerHTML = '<tr><td colspan="4" class="text-center py-4 text-muted">Chưa có dữ liệu.</td></tr>'; 
+        if(todayGrid) todayGrid.innerHTML = '<div class="col-12 text-muted small fst-italic">Không có dữ liệu.</div>';
+        return;
     }
+
+    const currentDate = new Date();
+    currentDate.setHours(0, 0, 0, 0);
+    let hasToday = false;
+    
+    const uniqueMonths = new Set();
 
     data.forEach(item => {
         let badgeClass = item.status === 'Đã duyệt' ? 'bg-success' : (item.status === 'Chờ duyệt' ? 'bg-warning text-dark' : 'bg-danger');
-        tbody.innerHTML += `<tr><td class="ps-3 fw-bold text-secondary">${item.start}</td><td><div class="fw-bold text-dark">${item.name}</div><small class="text-muted">${item.dept}</small></td><td><div class="small text-dark">${item.type}</div><small class="text-muted fst-italic">"${item.reason}"</small></td><td><span class="badge ${badgeClass}">${item.status}</span></td></tr>`;
+
+        if (item.start) {
+            const dateParts = item.start.split(' ')[0].split('/');
+            if (dateParts.length >= 2) {
+                uniqueMonths.add(`${dateParts[1]}/${dateParts[2]}`);
+            }
+        }
+
+        tbody.innerHTML += `<tr>
+            <td class="ps-3 fw-bold text-secondary text-nowrap">${item.start}</td>
+            <td>
+                <div class="fw-bold text-dark">${item.name}</div>
+                <small class="text-muted">${item.dept}</small>
+            </td>
+            <td>
+                <div class="small text-dark fw-bold">${item.type}</div>
+                <small class="text-muted fst-italic">"${item.reason}"</small>
+            </td>
+            <td class="text-end pe-3"><span class="badge ${badgeClass}">${item.status}</span></td>
+        </tr>`;
         
         if (item.status !== 'Từ chối') {
-            grid.innerHTML += `<div class="col-md-4 col-sm-6"><div class="p-3 bg-white rounded border-start border-4 ${item.status === 'Đã duyệt' ? 'border-success' : 'border-warning'} shadow-sm h-100"><div class="d-flex justify-content-between mb-2"><span class="fw-bold text-dark">${item.start}</span><span class="badge ${badgeClass}">${item.status}</span></div><h6 class="mb-1 fw-bold">${item.name}</h6><p class="small text-muted mb-1">${item.type} (${item.days} ngày)</p></div></div>`;
+            const cardHTML = `<div class="col-md-4 col-sm-6"><div class="p-3 bg-white rounded border-start border-4 ${item.status === 'Đã duyệt' ? 'border-success' : 'border-warning'} shadow-sm h-100"><div class="d-flex justify-content-between mb-2"><span class="fw-bold text-dark">${item.start}</span><span class="badge ${badgeClass}">${item.status}</span></div><h6 class="mb-1 fw-bold">${item.name}</h6><p class="small text-muted mb-1">${item.type} (${item.days} ngày)</p></div></div>`;
+            
+            let isOffToday = false;
+            if(item.start) {
+                const dateOnlyStr = item.start.split(' ')[0]; 
+                const p = dateOnlyStr.split('/');
+                if(p.length === 3) {
+                    const startDate = new Date(p[2], p[1] - 1, p[0]);
+                    startDate.setHours(0,0,0,0);
+                    const days = parseFloat(item.days) || 1;
+                    const duration = Math.ceil(days);
+                    const endDate = new Date(startDate.getTime());
+                    endDate.setDate(startDate.getDate() + duration - 1);
+                    if(currentDate >= startDate && currentDate <= endDate) isOffToday = true;
+                }
+            }
+            if (isOffToday && todayGrid) { todayGrid.innerHTML += cardHTML; hasToday = true; }
+            grid.innerHTML += cardHTML;
         }
     });
 
+    if (!hasToday && todayGrid) {
+        todayGrid.innerHTML = '<div class="col-12"><div class="alert alert-light border text-muted small fst-italic mb-0"><i class="fa-solid fa-mug-hot me-2 text-warning"></i>Hôm nay không có ai nghỉ. Mọi người đều đi làm đầy đủ!</div></div>';
+    }
+
+    const currentMonthVal = filterMonthSelect.value; 
+    filterMonthSelect.innerHTML = '<option value="all">📅 Tất cả thời gian</option>';
+    
+    const sortedMonths = Array.from(uniqueMonths).sort((a, b) => {
+        const [mA, yA] = a.split('/');
+        const [mB, yB] = b.split('/');
+        return new Date(yB, mB - 1) - new Date(yA, mA - 1);
+    });
+
+    sortedMonths.forEach(m => {
+        filterMonthSelect.innerHTML += `<option value="${m}">Tháng ${m}</option>`;
+    });
+    
+    if(Array.from(filterMonthSelect.options).some(opt => opt.value === currentMonthVal)) {
+        filterMonthSelect.value = currentMonthVal;
+    }
+
     const filterFunc = () => {
-        const txt = el('searchBox').value.toLowerCase();
+        const txt = el('searchBox').value.toLowerCase().trim();
         const stat = el('filterStatus').value;
+        const monthStr = el('filterMonth').value; 
+
         Array.from(tbody.rows).forEach(row => {
+            if (row.cells.length < 4) return;
+            const rowDate = row.cells[0].innerText; 
             const name = row.cells[1].innerText.toLowerCase();
             const status = row.cells[3].innerText;
-            row.style.display = (name.includes(txt) && (stat === 'all' || status.includes(stat))) ? '' : 'none';
+            
+            const matchName = name.includes(txt);
+            const matchStat = (stat === 'all' || status.includes(stat));
+            const matchMonth = (monthStr === 'all' || rowDate.includes(monthStr)); 
+
+            row.style.display = (matchName && matchStat && matchMonth) ? '' : 'none';
         });
     };
-    el('searchBox').onkeyup = filterFunc;
+    
+    el('searchBox').oninput = filterFunc;
     el('filterStatus').onchange = filterFunc;
+    el('filterMonth').onchange = filterFunc;
 }
 
 
@@ -150,7 +230,17 @@ function calculateLeave() {
     else if(bal<=0) { typeInp.value = `Nghỉ không lương (${days} ngày)`; typeInp.className = "form-control fw-bold bg-light text-danger"; msg.innerHTML='Hết phép. Tính nghỉ không lương.'; msg.classList.remove('d-none'); }
     else { const unpaid = days-bal; typeInp.value = `${bal} Phép năm + ${unpaid} Không lương`; typeInp.className="form-control fw-bold bg-light text-warning"; msg.innerHTML='Thiếu phép. Tự tách đơn.'; msg.classList.remove('d-none'); }
 }
-el('days').addEventListener('input', calculateLeave);
+
+el('days').addEventListener('input', () => {
+    calculateLeave();
+    
+    const daysVal = parseFloat(el('days').value) || 0;
+    if (daysVal % 1 !== 0) {
+        el('sessionContainer').classList.remove('d-none');
+    } else {
+        el('sessionContainer').classList.add('d-none');
+    }
+});
 
 async function loadHistory(email) {
     try {
@@ -168,11 +258,30 @@ async function loadHistory(email) {
 el('leaveForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const displayDate = formatDateVN(el('startDate').value);
-    const confirm = await Swal.fire({ title: 'Gửi đơn?', html: `<b>${el('days').value} ngày</b><br>Từ: <b>${displayDate}</b>`, icon: 'question', showCancelButton: true, confirmButtonText: 'Gửi', confirmButtonColor: '#D61F2F' });
+    const confirm = await Swal.fire({ title: 'Gửi đơn?', html: `<b>Bạn muốn đăng ký nghỉ ${el('days').value} ngày</b><br>Từ: <b>${displayDate}</b>`, icon: 'question', showCancelButton: true, confirmButtonText: 'Gửi', confirmButtonColor: '#D61F2F' });
     if(!confirm.isConfirmed) return;
 
     setLoader(true);
-    const payload = { action: 'SUBMIT', fullName: el('myName').innerText, email: el('email').value, dept: el('myDept').innerText, manager: el('bossEmail').value, startDate: el('startDate').value, days: el('days').value, type: el('type').value, reason: el('reason').value };
+    
+    const daysVal = parseFloat(el('days').value) || 0;
+    let sessionChoice = "";
+    if (daysVal % 1 !== 0) {
+        sessionChoice = el('leaveSession').value;
+    }
+
+    const payload = { 
+        action: 'SUBMIT', 
+        fullName: el('myName').innerText, 
+        email: el('email').value, 
+        dept: el('myDept').innerText, 
+        manager: el('bossEmail').value, 
+        startDate: el('startDate').value, 
+        days: el('days').value, 
+        type: el('type').value, 
+        reason: el('reason').value,
+        session: sessionChoice
+    };
+    
     try {
         await fetch(API_URL, { method:'POST', body:JSON.stringify(payload) });
         setLoader(false);
@@ -185,6 +294,10 @@ el('leaveForm').addEventListener('submit', async (e) => {
             confirmButtonColor: '#D61F2F'
         });
 
-        el('leaveForm').reset(); el('days').value=1; el('type').value=""; loadHistory(el('email').value);
+        el('leaveForm').reset(); 
+        el('days').value = 1; 
+        el('type').value = ""; 
+        el('sessionContainer').classList.add('d-none');
+        loadHistory(el('email').value);
     } catch(e) { setLoader(false); Swal.fire("Lỗi mạng", "", "error"); }
 });
