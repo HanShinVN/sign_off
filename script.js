@@ -176,7 +176,15 @@ el('leaveForm').addEventListener('submit', async (e) => {
     try {
         await fetch(API_URL, { method:'POST', body:JSON.stringify(payload) });
         setLoader(false);
-        await Swal.fire("Thành công", "Đã gửi đơn!", "success");
+        
+        const managerEmail = el('bossEmail').value;
+        await Swal.fire({
+            title: "Thành công!",
+            html: `Đã gửi đơn chờ duyệt đến:<br><strong>${managerEmail}</strong>`,
+            icon: "success",
+            confirmButtonColor: '#D61F2F'
+        });
+
         el('leaveForm').reset(); el('days').value=1; el('type').value=""; loadHistory(el('email').value);
     } catch(e) { setLoader(false); Swal.fire("Lỗi mạng", "", "error"); }
 });
